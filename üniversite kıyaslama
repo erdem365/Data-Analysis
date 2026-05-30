@@ -1,0 +1,170 @@
+# =========================
+# 1. KÜTÜPHANELER
+# =========================
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+plt.style.use("default")
+
+# =========================
+# 2. VERİYİ YÜKLE
+# =========================
+df = pd.read_csv("timesData.csv")
+
+print("Shape:", df.shape)
+print(df.head())
+
+# =========================
+# 3. VERİ TEMİZLEME
+# =========================
+
+print("\nEksik veriler:")
+print(df.isnull().sum())
+
+# numeric dönüşüm
+num_cols = ['teaching', 'international', 'research', 'citations', 'income', 'total_score']
+
+for col in num_cols:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+# world_rank temizleme (string olabilir)
+df['world_rank'] = df['world_rank'].astype(str)
+df = df[df['world_rank'] != '–']
+
+df['world_rank'] = df['world_rank'].str.replace('=', '')
+df['world_rank'] = pd.to_numeric(df['world_rank'], errors='coerce')
+
+# =========================
+# 4. TEMEL İSTATİSTİKLER
+# =========================
+
+print("\nDescribe:")
+print(df[num_cols].describe())
+
+# =========================
+# 5. EN İYİ ÜNİVERSİTELER
+# =========================
+
+top_uni = df.sort_values("world_rank").head(20)
+
+print("\nTop 20 University:")
+print(top_uni[['world_rank', 'university_name', 'country']])
+
+# =========================
+# 6. ÜLKE ANALİZİ
+# =========================
+
+country_counts = df['country'].value_counts()
+
+print("\nTop 10 Country by University Count:")
+print(country_counts.head(10))
+
+country_research = df.groupby('country')['research'].mean().sort_values(ascending=False)
+
+print("\nTop Countries by Research Score:")
+print(country_research.head(10))
+
+# =========================
+# 7. GÖRSELLEŞTİRME
+# =========================
+
+# 7.1 Ülke sayısı
+plt.figure(figsize=(10,5))
+country_counts.head(10).plot(kind='bar')
+plt.title("Top 10 Countries by University Count")
+plt.xlabel("Country")
+plt.ylabel("Count")
+plt.xticks(rotation=45)
+plt.show()
+
+# 7.2 Research dağılımı
+plt.figure(figsize=(8,5))
+df['research'].hist(bins=30)
+plt.title("Research Score Distribution")
+plt.xlabel("Research")
+plt.ylabel("Frequency")
+plt.show()
+
+# 7.3 Teaching vs Research
+plt.figure(figsize=(8,5))
+plt.scatter(df['teaching'], df['research'], alpha=0.4)
+plt.title("Teaching vs Research")
+plt.xlabel("Teaching")
+plt.ylabel("Research")
+plt.show()
+
+# 7.4 Korelasyon heatmap (basit)
+corr = df[num_cols].corr()
+
+plt.figure(figsize=(6,5))
+plt.imshow(corr, cmap='coolwarm')
+plt.colorbar()
+plt.xticks(range(len(num_cols)), num_cols, rotation=45)
+plt.yticks(range(len(num_cols)), num_cols)
+plt.title("Correlation Matrix")
+plt.show()
+
+# =========================
+# 8. TÜRKİYE ANALİZİ
+# =========================
+
+turkey = df[df['country'] == 'Turkey']
+
+print("\nTurkey University Count:", turkey['university_name'].nunique())
+
+print("\nTop Turkish Universities:")
+print(turkey.sort_values("world_rank")[['world_rank','university_name']].head(10))
+
+print("\nTurkey Mean Scores:")
+print(turkey[num_cols].mean())
+
+# =========================
+# 9. FEATURE ENGINEERING
+# =========================
+
+df['performance_score'] = (
+    df['research'] * 0.4 +
+    df['teaching'] * 0.3 +
+    df['citations'] * 0.2 +
+    df['international'] * 0.1
+)
+
+print("\nTop 10 by Performance Score:")
+print(df.sort_values("performance_score", ascending=False)[
+    ['university_name','country','performance_score']
+].head(10))
+
+# =========================
+# 10. SINIFLANDIRMA
+# =========================
+
+df['level'] = pd.cut(
+    df['performance_score'],
+    bins=[0, 40, 60, 80, 100],
+    labels=['Low', 'Medium', 'High', 'Elite']
+)
+
+print("\nLevel distribution:")
+print(df['level'].value_counts())
+
+# =========================
+# 11. BONUS: EN İYİ ÜLKELER
+# =========================
+
+country_perf = df.groupby('country')['performance_score'].mean().sort_values(ascending=False)
+
+print("\nTop Countries by Performance Score:")
+print(country_perf.head(10))
+
+# =========================
+# 12. DASHBOARD ÖZETİ
+# =========================
+
+print("\n===== DASHBOARD =====")
+print("Total Universities:", df['university_name'].nunique())
+print("Total Countries:", df['country'].nunique())
+print("Average Research:", round(df['research'].mean(),2))
+print("Best University:", df.sort_values('world_rank').iloc[0]['university_name'])
+print("Best Country:", country_perf.idxmax())
