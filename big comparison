@@ -1,0 +1,163 @@
+# =========================
+# 1. IMPORTS
+# =========================
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.cluster import KMeans
+
+# =========================
+# 2. LOAD DATA
+# =========================
+df = pd.read_csv("nba_data.csv")
+
+print("Initial shape:", df.shape)
+print(df.head())
+
+# =========================
+# 3. DATA CLEANING
+# =========================
+
+# remove duplicates
+df = df.drop_duplicates()
+
+# numeric conversion
+num_cols = ['PTS','AST','TRB','STL','BLK']
+for col in num_cols:
+    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+# fill missing values
+df[num_cols] = df[num_cols].fillna(df[num_cols].median())
+
+# outlier removal (IQR method)
+def remove_outliers(data, col):
+    q1 = data[col].quantile(0.25)
+    q3 = data[col].quantile(0.75)
+    iqr = q3 - q1
+    return data[(data[col] >= q1 - 1.5*iqr) & (data[col] <= q3 + 1.5*iqr)]
+
+for col in ['PTS','AST','TRB']:
+    df = remove_outliers(df, col)
+
+print("After cleaning:", df.shape)
+
+# =========================
+# 4. FEATURE ENGINEERING
+# =========================
+
+# Player Performance Score (PPS)
+df['PPS'] = (
+    df['PTS'] * 0.4 +
+    df['AST'] * 0.2 +
+    df['TRB'] * 0.2 +
+    df['STL'] * 0.1 +
+    df['BLK'] * 0.1
+)
+
+# Efficiency ratio (safe division)
+df['EFF'] = df['PTS'] / (df['FGA'] + 1) if 'FGA' in df.columns else df['PTS']
+
+# Era grouping
+if 'Year' in df.columns:
+    df['ERA'] = pd.cut(
+        df['Year'],
+        bins=[1950, 1980, 2000, 2010, 2025],
+        labels=['Old','Classic','Modern','Current']
+    )
+
+# =========================
+# 5. CORE ANALYSIS
+# =========================
+
+# Top players
+top_players = df.sort_values('PPS', ascending=False).head(10)
+print("\nTOP 10 PLAYERS:")
+print(top_players[['Player','PTS','AST','TRB','PPS']])
+
+# Position analysis
+if 'Pos' in df.columns:
+    print("\nPOSITION STATS:")
+    print(df.groupby('Pos')[['PTS','AST','TRB','PPS']].mean())
+
+# Era analysis
+if 'ERA' in df.columns:
+    print("\nERA STATS:")
+    print(df.groupby('ERA')[['PTS','AST','TRB']].mean())
+
+# Team analysis
+if 'Tm' in df.columns:
+    team_stats = df.groupby('Tm')[['PTS','AST','TRB','PPS']].mean()
+    print("\nTOP TEAMS:")
+    print(team_stats.sort_values('PPS', ascending=False).head(10))
+
+# =========================
+# 6. VISUALIZATION
+# =========================
+
+# PPS distribution
+plt.figure()
+plt.hist(df['PPS'], bins=30)
+plt.title("Player Performance Score Distribution")
+plt.show()
+
+# Points vs Assists
+plt.figure()
+plt.scatter(df['PTS'], df['AST'], alpha=0.4)
+plt.title("Points vs Assists")
+plt.xlabel("PTS")
+plt.ylabel("AST")
+plt.show()
+
+# Scoring trend over time
+if 'Year' in df.columns:
+    plt.figure()
+    df.groupby('Year')['PTS'].mean().plot()
+    plt.title("NBA Scoring Trend Over Time")
+    plt.show()
+
+# =========================
+# 7. MACHINE LEARNING (CLUSTERING)
+# =========================
+
+features = ['PTS','AST','TRB']
+X = df[features].dropna()
+
+kmeans = KMeans(n_clusters=4, random_state=42)
+df.loc[X.index, 'Cluster'] = kmeans.fit_predict(X)
+
+print("\nCLUSTER STATS:")
+print(df.groupby('Cluster')[features].mean())
+
+# =========================
+# 8. INSIGHTS ENGINE
+# =========================
+
+best_player = df.loc[df['PPS'].idxmax()]
+
+print("\n================ INSIGHTS ================")
+print("Best Player:", best_player['Player'])
+print("Best PPS:", best_player['PPS'])
+
+if 'ERA' in df.columns:
+    old = df[df['ERA']=='Old']['PTS'].mean()
+    modern = df[df['ERA']=='Modern']['PTS'].mean()
+
+    print("Old Era Avg PTS:", old)
+    print("Modern Era Avg PTS:", modern)
+    print("Scoring increase:", modern - old)
+
+if 'Pos' in df.columns:
+    best_pos = df.groupby('Pos')['PPS'].mean().idxmax()
+    print("Most impactful position:", best_pos)
+
+# =========================
+# 9. DASHBOARD SUMMARY
+# =========================
+
+print("\n=========== DASHBOARD ===========")
+print("Total Players:", df['Player'].nunique() if 'Player' in df.columns else len(df))
+print("Total Seasons:", df['Year'].nunique() if 'Year' in df.columns else "N/A")
+print("Best Player:", best_player['Player'])
+print("Average PPS:", df['PPS'].mean())
+print("Top Cluster Size:", df['Cluster'].value_counts().max())
