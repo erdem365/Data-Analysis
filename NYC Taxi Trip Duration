@@ -1,0 +1,197 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.ensemble import RandomForestRegressor
+
+# =========================
+# LOAD DATA
+# =========================
+
+df = pd.read_csv("train.csv")
+
+print(df.shape)
+print(df.head())
+
+# =========================
+# CLEANING
+# =========================
+
+df = df.drop_duplicates()
+
+df["pickup_datetime"] = pd.to_datetime(df["pickup_datetime"])
+
+# remove impossible passenger counts
+df = df[df["passenger_count"] > 0]
+
+# =========================
+# FEATURE ENGINEERING
+# =========================
+
+df["pickup_hour"] = df["pickup_datetime"].dt.hour
+df["pickup_day"] = df["pickup_datetime"].dt.day_name()
+df["pickup_month"] = df["pickup_datetime"].dt.month
+df["pickup_weekday"] = df["pickup_datetime"].dt.weekday
+
+df["is_weekend"] = df["pickup_weekday"].isin([5, 6]).astype(int)
+
+# approximate distance
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371
+
+    lat1 = np.radians(lat1)
+    lon1 = np.radians(lon1)
+    lat2 = np.radians(lat2)
+    lon2 = np.radians(lon2)
+
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+
+    a = (
+        np.sin(dlat / 2) ** 2
+        + np.cos(lat1)
+        * np.cos(lat2)
+        * np.sin(dlon / 2) ** 2
+    )
+
+    c = 2 * np.arcsin(np.sqrt(a))
+
+    return R * c
+
+df["distance_km"] = haversine(
+    df["pickup_latitude"],
+    df["pickup_longitude"],
+    df["dropoff_latitude"],
+    df["dropoff_longitude"]
+)
+
+# =========================
+# EDA
+# =========================
+
+print("\nMissing values:")
+print(df.isnull().sum())
+
+print("\nStatistics:")
+print(df.describe())
+
+# busiest hour
+hourly = df.groupby("pickup_hour").size()
+
+plt.figure(figsize=(10, 5))
+hourly.plot()
+plt.title("Trips by Hour")
+plt.xlabel("Hour")
+plt.ylabel("Trips")
+plt.show()
+
+# weekend comparison
+weekend_stats = (
+    df.groupby("is_weekend")["trip_duration"]
+      .mean()
+)
+
+print("\nAverage Trip Duration:")
+print(weekend_stats)
+
+# =========================
+# OUTLIER REMOVAL
+# =========================
+
+q1 = df["trip_duration"].quantile(0.25)
+q3 = df["trip_duration"].quantile(0.75)
+
+iqr = q3 - q1
+
+lower = q1 - 1.5 * iqr
+upper = q3 + 1.5 * iqr
+
+df = df[
+    (df["trip_duration"] >= lower)
+    & (df["trip_duration"] <= upper)
+]
+
+# =========================
+# MACHINE LEARNING
+# =========================
+
+features = [
+    "passenger_count",
+    "pickup_hour",
+    "pickup_month",
+    "pickup_weekday",
+    "is_weekend",
+    "distance_km"
+]
+
+X = df[features]
+y = df["trip_duration"]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.2,
+    random_state=42
+)
+
+model = RandomForestRegressor(
+    n_estimators=100,
+    random_state=42
+)
+
+model.fit(X_train, y_train)
+
+pred = model.predict(X_test)
+
+mae = mean_absolute_error(y_test, pred)
+r2 = r2_score(y_test, pred)
+
+print("\nMODEL RESULTS")
+print("MAE:", mae)
+print("R2:", r2)
+
+# =========================
+# FEATURE IMPORTANCE
+# =========================
+
+importance = pd.Series(
+    model.feature_importances_,
+    index=features
+).sort_values(ascending=False)
+
+print("\nFeature Importance")
+print(importance)
+
+importance.plot(kind="bar")
+plt.title("Feature Importance")
+plt.show()
+
+# =========================
+# DASHBOARD SUMMARY
+# =========================
+
+print("\n=== DASHBOARD ===")
+
+print("Total Trips:", len(df))
+
+print(
+    "Average Duration:",
+    round(df["trip_duration"].mean(), 2)
+)
+
+print(
+    "Average Distance:",
+    round(df["distance_km"].mean(), 2)
+)
+
+print(
+    "Busiest Hour:",
+    hourly.idxmax()
+)
+
+print(
+    "Model R2:",
+    round(r2, 3)
+)
