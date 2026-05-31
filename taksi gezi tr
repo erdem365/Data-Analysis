@@ -1,0 +1,198 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.ensemble import RandomForestRegressor
+
+# =========================
+# VERİYİ YÜKLE
+# =========================
+
+veri = pd.read_csv("train.csv")
+
+print(veri.shape)
+print(veri.head())
+
+# =========================
+# VERİ TEMİZLEME
+# =========================
+
+veri = veri.drop_duplicates()
+
+veri["pickup_datetime"] = pd.to_datetime(veri["pickup_datetime"])
+
+# geçersiz yolcu sayılarını temizle
+veri = veri[veri["passenger_count"] > 0]
+
+# =========================
+# ÖZELLİK MÜHENDİSLİĞİ
+# =========================
+
+veri["pickup_hour"] = veri["pickup_datetime"].dt.hour
+veri["pickup_day"] = veri["pickup_datetime"].dt.day_name()
+veri["pickup_month"] = veri["pickup_datetime"].dt.month
+veri["pickup_weekday"] = veri["pickup_datetime"].dt.weekday
+
+veri["is_weekend"] = veri["pickup_weekday"].isin([5, 6]).astype(int)
+
+# yaklaşık mesafe hesaplama
+def haversine(y1, x1, y2, x2):
+    R = 6371
+
+    y1 = np.radians(y1)
+    x1 = np.radians(x1)
+    y2 = np.radians(y2)
+    x2 = np.radians(x2)
+
+    dy = y2 - y1
+    dx = x2 - x1
+
+    a = (
+        np.sin(dy / 2) ** 2
+        + np.cos(y1)
+        * np.cos(y2)
+        * np.sin(dx / 2) ** 2
+    )
+
+    c = 2 * np.arcsin(np.sqrt(a))
+
+    return R * c
+
+
+veri["mesafe_km"] = haversine(
+    veri["pickup_latitude"],
+    veri["pickup_longitude"],
+    veri["dropoff_latitude"],
+    veri["dropoff_longitude"]
+)
+
+# =========================
+# KEŞİFSEL VERİ ANALİZİ
+# =========================
+
+print("\nEksik değerler:")
+print(veri.isnull().sum())
+
+print("\nİstatistikler:")
+print(veri.describe())
+
+# en yoğun saat
+saatlik = veri.groupby("pickup_hour").size()
+
+plt.figure(figsize=(10, 5))
+saatlik.plot()
+plt.title("Saatlere Göre Yolculuk Sayısı")
+plt.xlabel("Saat")
+plt.ylabel("Yolculuk Sayısı")
+plt.show()
+
+# hafta sonu karşılaştırması
+hafta_sonu = (
+    veri.groupby("is_weekend")["trip_duration"]
+      .mean()
+)
+
+print("\nOrtalama Yolculuk Süresi:")
+print(hafta_sonu)
+
+# =========================
+# AYKIRI DEĞER TEMİZLEME
+# =========================
+
+q1 = veri["trip_duration"].quantile(0.25)
+q3 = veri["trip_duration"].quantile(0.75)
+
+iqr = q3 - q1
+
+alt_sinir = q1 - 1.5 * iqr
+ust_sinir = q3 + 1.5 * iqr
+
+veri = veri[
+    (veri["trip_duration"] >= alt_sinir)
+    & (veri["trip_duration"] <= ust_sinir)
+]
+
+# =========================
+# MAKİNE ÖĞRENMESİ
+# =========================
+
+ozellikler = [
+    "passenger_count",
+    "pickup_hour",
+    "pickup_month",
+    "pickup_weekday",
+    "is_weekend",
+    "mesafe_km"
+]
+
+X = veri[ozellikler]
+y = veri["trip_duration"]
+
+X_egitim, X_test, y_egitim, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.2,
+    random_state=42
+)
+
+model = RandomForestRegressor(
+    n_estimators=100,
+    random_state=42
+)
+
+model.fit(X_egitim, y_egitim)
+
+tahmin = model.predict(X_test)
+
+mae = mean_absolute_error(y_test, tahmin)
+r2 = r2_score(y_test, tahmin)
+
+print("\nMODEL SONUÇLARI")
+print("MAE:", mae)
+print("R2:", r2)
+
+# =========================
+# ÖZELLİK ÖNEMİ
+# =========================
+
+onem = pd.Series(
+    model.feature_importances_,
+    index=ozellikler
+).sort_values(ascending=False)
+
+print("\nÖzellik Önemi")
+print(onem)
+
+onem.plot(kind="bar")
+plt.title("Özellik Önemi")
+plt.show()
+
+# =========================
+# DASHBOARD ÖZETİ
+# =========================
+
+print("\n=== DASHBOARD ===")
+
+print("Toplam Yolculuk:", len(veri))
+
+print(
+    "Ortalama Süre:",
+    round(veri["trip_duration"].mean(), 2)
+)
+
+print(
+    "Ortalama Mesafe:",
+    round(veri["mesafe_km"].mean(), 2)
+)
+
+print(
+    "En Yoğun Saat:",
+    saatlik.idxmax()
+)
+
+print(
+    "Model R2:",
+    round(r2, 3)
+)
