@@ -1,0 +1,159 @@
+import numpy as np
+import pandas as pd
+
+# ========== 1. DATA GENERATION (NumPy) ==========
+np.random.seed(42)
+
+# Store IDs
+store_ids = [f"S{i:02d}" for i in range(1, 11)]
+
+# Date range: 01.01.2025 - 31.12.2025 (365 days)
+dates = pd.date_range(start="2025-01-01", end="2025-12-31", freq="D")
+n_stores = len(store_ids)
+n_days = len(dates)
+
+# Base sales average for each store (between 200 and 500)
+base_sales = np.random.randint(200, 501, size=n_stores)
+
+# Seasonal effect: sine curve based on day of year (higher in summer, lower in winter)
+day_of_year = np.arange(1, n_days + 1)
+seasonal = 50 * np.sin(2 * np.pi * (day_of_year - 80) / 365)  # peak around July
+
+# Sales data matrix: (day, store) -> iterate over each store
+sales_data = np.zeros((n_days, n_stores))
+for i, base in enumerate(base_sales):
+    noise = np.random.normal(0, 30, size=n_days)  # random noise
+    sales_data[:, i] = base + seasonal + noise
+sales_data = np.round(sales_data).astype(int)
+
+# Add 5% random NaN values
+mask = np.random.random(sales_data.shape) < 0.05
+sales_data = sales_data.astype(float)  # convert to float to allow NaN
+sales_data[mask] = np.nan
+
+# ========== 2. CREATE DATAFRAME ==========
+records = []
+for day_idx, date in enumerate(dates):
+    for store_idx, store_id in enumerate(store_ids):
+        records.append({
+            "date": date,
+            "store_id": store_id,
+            "sales": sales_data[day_idx, store_idx]
+        })
+
+df = pd.DataFrame(records)
+print("First 5 rows of the dataset:\n", df.head())
+
+# ========== 3. DATA CLEANING AND PREPARATION ==========
+# Missing value counts per store
+print("\nMissing values per store:")
+print(df.groupby("store_id")["sales"].apply(lambda x: x.isna().sum()))
+
+# Fill missing values with store mean
+store_means = df.groupby("store_id")["sales"].transform("mean")
+df["sales"].fillna(store_means, inplace=True)
+
+# Extract date features
+df["month"] = df["date"].dt.month
+df["day"] = df["date"].dt.day
+df["weekday"] = df["date"].dt.weekday  # Monday=0, Sunday=6
+df["month_name"] = df["date"].dt.month_name()
+df["is_weekend"] = df["weekday"] >= 5  # Saturday or Sunday
+
+# ========== 4. BASIC ANALYSIS ==========
+print("\nOverall sales statistics:")
+print(df["sales"].describe())
+
+# Total sales by store
+store_total_sales = df.groupby("store_id")["sales"].sum().sort_values(ascending=False)
+print("\nTotal sales by store:")
+print(store_total_sales)
+
+# Monthly total sales (all stores combined)
+monthly_total = df.groupby("month")["sales"].sum()
+print("\nMonthly total sales:")
+print(monthly_total)
+
+# Pivot table: store x month -> total sales
+pivot_store_month = df.pivot_table(values="sales", index="store_id", columns="month", aggfunc="sum")
+print("\nPivot (Store x Month) Total Sales:")
+print(pivot_store_month)
+
+# ========== 5. GROUPING AND MERGING ==========
+# Store information DataFrame
+store_info = pd.DataFrame({
+    "store_id": store_ids,
+    "city": ["İstanbul", "Ankara", "İzmir", "Bursa", "Antalya",
+             "İstanbul", "Ankara", "İzmir", "Bursa", "Antalya"],
+    "type": ["Mall", "Street", "Neighborhood", "Mall", "Street",
+             "Neighborhood", "Mall", "Street", "Neighborhood", "Mall"]
+})
+
+# Merge with sales data
+df = df.merge(store_info, on="store_id", how="left")
+print("\nMerged data (first 3 rows):")
+print(df.head(3))
+
+# City-based analysis
+city_sales = df.groupby("city")["sales"].agg(["sum", "mean"])
+print("\nCity-based total and average sales:")
+print(city_sales)
+
+# Average sales by store type
+type_avg = df.groupby("type")["sales"].mean()
+print("\nAverage sales by store type:")
+print(type_avg)
+
+# ========== 6. TIME SERIES FEATURES ==========
+# Filter store S01 and sort by date
+s01 = df[df["store_id"] == "S01"].sort_values("date").copy()
+
+# 7-day moving average
+s01["moving_avg_7"] = s01["sales"].rolling(window=7).mean()
+print("\nS01 first 30 days with 7-day moving average:")
+print(s01[["date", "sales", "moving_avg_7"]].head(30))
+
+# Linear trend (using day index)
+s01["day_index"] = np.arange(len(s01))
+# No missing values, apply polyfit
+coeffs = np.polyfit(s01["day_index"], s01["sales"], 1)
+slope, intercept = coeffs
+print(f"\nLinear trend for S01: slope = {slope:.3f}, intercept = {intercept:.2f}")
+
+# ========== 7. CORRELATION AND ADVANCED ANALYSIS ==========
+# Pivot table for correlation matrix
+pivot_for_corr = df.pivot_table(values="sales", index="date", columns="store_id", aggfunc="sum")
+# Rows: dates, columns: stores, no NaN expected
+corr_matrix = np.corrcoef(pivot_for_corr.values, rowvar=False)  # variables in columns
+store_names = pivot_for_corr.columns
+print("\nCorrelation matrix between stores:")
+print(pd.DataFrame(corr_matrix, index=store_names, columns=store_names))
+
+# Find pair with highest positive correlation (excluding self-correlation)
+np.fill_diagonal(corr_matrix, -2)  # exclude self
+max_corr_value = corr_matrix.max()
+max_corr_indices = np.unravel_index(np.argmax(corr_matrix), corr_matrix.shape)
+store_a, store_b = store_names[max_corr_indices[0]], store_names[max_corr_indices[1]]
+print(f"Highest correlation: between {store_a} and {store_b} ({max_corr_value:.3f})")
+
+# Outlier detection using Z-score
+mean_sales = df["sales"].mean()
+std_sales = df["sales"].std()
+df["z_score"] = (df["sales"] - mean_sales) / std_sales
+outlier_count = (np.abs(df["z_score"]) > 3).sum()
+print(f"\nNumber of outliers beyond ±3 Z-score: {outlier_count}")
+
+# ========== 8. OUTPUT AND REPORTING ==========
+# Top 3 stores by total sales
+top_3 = store_total_sales.head(3).index
+top3_info = df[df["store_id"].isin(top_3)][["store_id", "city", "type"]].drop_duplicates()
+print("\nTop 3 stores by total sales:")
+print(top3_info)
+
+# Weekday vs weekend average sales comparison
+day_avg = df.groupby("is_weekend")["sales"].mean()
+day_avg.index = ["Weekday", "Weekend"]
+print("\nAverage sales by day type:")
+print(day_avg)
+
+print("\n--- Analysis completed ---")
