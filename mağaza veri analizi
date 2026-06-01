@@ -1,0 +1,159 @@
+import numpy as np
+import pandas as pd
+
+# ========== 1. VERİ ÜRETİMİ (NumPy) ==========
+np.random.seed(42)
+
+# Mağaza ID'leri
+store_ids = [f"S{i:02d}" for i in range(1, 11)]
+
+# Tarih aralığı: 01.01.2025 - 31.12.2025 (365 gün)
+dates = pd.date_range(start="2025-01-01", end="2025-12-31", freq="D")
+n_stores = len(store_ids)
+n_days = len(dates)
+
+# Her mağaza için temel satış ortalaması (200-500 arası)
+base_sales = np.random.randint(200, 501, size=n_stores)
+
+# Mevsimsel etki: yılın gününe göre sinüs eğrisi (yazın yüksek, kışın düşük)
+day_of_year = np.arange(1, n_days + 1)
+seasonal = 50 * np.sin(2 * np.pi * (day_of_year - 80) / 365)  # Temmuz civarı tepe
+
+# Satış verisi matrisi: (gün, mağaza) -> her mağaza için tekrar edeceğiz
+sales_data = np.zeros((n_days, n_stores))
+for i, base in enumerate(base_sales):
+    noise = np.random.normal(0, 30, size=n_days)  # gürültü
+    sales_data[:, i] = base + seasonal + noise
+sales_data = np.round(sales_data).astype(int)
+
+# %5 rastgele NaN ekle
+mask = np.random.random(sales_data.shape) < 0.05
+sales_data = sales_data.astype(float)  # NaN eklemek için float yap
+sales_data[mask] = np.nan
+
+# ========== 2. DATAFRAME OLUŞTURMA ==========
+records = []
+for day_idx, date in enumerate(dates):
+    for store_idx, store_id in enumerate(store_ids):
+        records.append({
+            "tarih": date,
+            "store_id": store_id,
+            "satis": sales_data[day_idx, store_idx]
+        })
+
+df = pd.DataFrame(records)
+print("Veri seti ilk 5 satır:\n", df.head())
+
+# ========== 3. VERİ TEMİZLEME VE HAZIRLIK ==========
+# Eksik değer sayıları
+print("\nMağaza bazında eksik değerler:")
+print(df.groupby("store_id")["satis"].apply(lambda x: x.isna().sum()))
+
+# Eksikleri mağaza ortalamasıyla doldur
+store_means = df.groupby("store_id")["satis"].transform("mean")
+df["satis"].fillna(store_means, inplace=True)
+
+# Tarih bilgilerinden yeni sütunlar
+df["ay"] = df["tarih"].dt.month
+df["gun"] = df["tarih"].dt.day
+df["hafta_ici"] = df["tarih"].dt.weekday  # Pazartesi=0, Pazar=6
+df["ay_isim"] = df["tarih"].dt.month_name()  # İngilizce ay ismi
+df["hafta_sonu"] = df["hafta_ici"] >= 5  # Cumartesi veya Pazar
+
+# ========== 4. TEMEL ANALİZLER ==========
+print("\nGenel satış istatistikleri:")
+print(df["satis"].describe())
+
+# Mağaza toplam satışları
+toplam_satis = df.groupby("store_id")["satis"].sum().sort_values(ascending=False)
+print("\nMağaza toplam satışları:")
+print(toplam_satis)
+
+# Aylık toplam satış (tüm mağazalar)
+aylik_toplam = df.groupby("ay")["satis"].sum()
+print("\nAylık toplam satış:")
+print(aylik_toplam)
+
+# Pivot table: mağaza x ay -> toplam satış
+pivot_store_month = df.pivot_table(values="satis", index="store_id", columns="ay", aggfunc="sum")
+print("\nPivot (Mağaza x Ay) Toplam Satış:")
+print(pivot_store_month)
+
+# ========== 5. GRUPLAMA VE BİRLEŞTİRME ==========
+# Mağaza bilgileri DataFrame'i
+store_info = pd.DataFrame({
+    "store_id": store_ids,
+    "sehir": ["İstanbul", "Ankara", "İzmir", "Bursa", "Antalya",
+              "İstanbul", "Ankara", "İzmir", "Bursa", "Antalya"],
+    "tip": ["AVM", "Cadde", "Semt", "AVM", "Cadde",
+            "Semt", "AVM", "Cadde", "Semt", "AVM"]
+})
+
+# Birleştirme
+df = df.merge(store_info, on="store_id", how="left")
+print("\nBirleştirilmiş veri (ilk 3 satır):")
+print(df.head(3))
+
+# Şehir bazında analiz
+sehir_satis = df.groupby("sehir")["satis"].agg(["sum", "mean"])
+print("\nŞehir bazında toplam ve ortalama satış:")
+print(sehir_satis)
+
+# Mağaza tipine göre ortalama satış
+tip_ortalama = df.groupby("tip")["satis"].mean()
+print("\nMağaza tipine göre ortalama satış:")
+print(tip_ortalama)
+
+# ========== 6. ZAMAN SERİSİ ÖZELLİKLERİ ==========
+# S01 mağazasını filtrele ve tarihe göre sırala
+s01 = df[df["store_id"] == "S01"].sort_values("tarih").copy()
+
+# 7 günlük hareketli ortalama
+s01["hareketli_ortalama_7"] = s01["satis"].rolling(window=7).mean()
+print("\nS01 ilk 30 gün hareketli ortalama:")
+print(s01[["tarih", "satis", "hareketli_ortalama_7"]].head(30))
+
+# Doğrusal trend (gün indeksini kullan)
+s01["gun_index"] = np.arange(len(s01))
+# Eksik değer yok, polyfit uygula
+coeffs = np.polyfit(s01["gun_index"], s01["satis"], 1)
+egim, kesim = coeffs
+print(f"\nS01 için doğrusal trend: eğim = {egim:.3f}, kesişim = {kesim:.2f}")
+
+# ========== 7. KORELASYON VE İLERİ ANALİZ ==========
+# Pivot tablodan numpy korelasyon matrisi
+pivot_for_corr = df.pivot_table(values="satis", index="tarih", columns="store_id", aggfunc="sum")
+# Tarihleri satır, mağazaları sütun olarak al, NaN olmamalı
+corr_matrix = np.corrcoef(pivot_for_corr.values, rowvar=False)  # değişkenler sütunlarda
+store_names = pivot_for_corr.columns
+print("\nMağazalar arası korelasyon matrisi:")
+print(pd.DataFrame(corr_matrix, index=store_names, columns=store_names))
+
+# En yüksek pozitif korelasyonlu çifti bul (kendisi hariç)
+np.fill_diagonal(corr_matrix, -2)  # kendini dışlamak için
+max_corr_value = corr_matrix.max()
+max_corr_indices = np.unravel_index(np.argmax(corr_matrix), corr_matrix.shape)
+store_a, store_b = store_names[max_corr_indices[0]], store_names[max_corr_indices[1]]
+print(f"En yüksek korelasyon: {store_a} ile {store_b} arasında ({max_corr_value:.3f})")
+
+# Z-skor ile aykırı değer tespiti
+mean_satis = df["satis"].mean()
+std_satis = df["satis"].std()
+df["z_score"] = (df["satis"] - mean_satis) / std_satis
+outlier_count = (np.abs(df["z_score"]) > 3).sum()
+print(f"\n±3 Z-skor dışında kalan aykırı değer sayısı: {outlier_count}")
+
+# ========== 8. ÇIKTI VE RAPORLAMA ==========
+# En çok satış yapan 3 mağaza
+top_3 = toplam_satis.head(3).index
+top3_info = df[df["store_id"].isin(top_3)][["store_id", "sehir", "tip"]].drop_duplicates()
+print("\nEn çok satış yapan 3 mağaza:")
+print(top3_info)
+
+# Hafta içi / hafta sonu karşılaştırması
+gun_ort = df.groupby("hafta_sonu")["satis"].mean()
+gun_ort.index = ["Hafta içi", "Hafta sonu"]
+print("\nGün türüne göre ortalama satış:")
+print(gun_ort)
+
+print("\n--- Analiz tamamlandı ---")
