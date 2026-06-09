@@ -1,0 +1,53 @@
+# 6. En yüksek ücret ödeyen ilk 10 yolcu
+print("\n--- En Yüksek Ücret Ödeyen İlk 10 Yolcu ---")
+top_10_fare = titanic_df.nlargest(10, 'fare')[['fare', 'class', 'sex', 'age', 'survived']]
+print(top_10_fare)
+
+
+# 7. groupby ile analiz: Pclass'a göre ortalama yaş ve yaşayanların oranı
+print("\n--- Yolcu Sınıfına Göre Ortalama Yaş ve Hayatta Kalma Oranları ---")
+pclass_analysis = titanic_df.groupby('pclass').agg({
+    'age': 'mean',
+    'survived': 'mean'
+}).rename(columns={'age': 'Ortalama Yaş', 'survived': 'Hayatta Kalma Oranı'})
+print(pclass_analysis)
+
+# Görselleştirme
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+sns.barplot(data=titanic_df, x='pclass', y='survived', palette='viridis')
+plt.title('Yolcu Sınıfına Göre Hayatta Kalma Oranı')
+
+plt.subplot(1, 2, 2)
+sns.barplot(data=titanic_df, x='pclass', y='age', palette='viridis')
+plt.title('Yolcu Sınıfına Göre Ortalama Yaş')
+plt.tight_layout()
+plt.show()
+
+
+# 8. Korelasyon Matrisi
+# Sadece sayısal sütunları seçelim
+numeric_df = titanic_df.select_dtypes(include=[np.number])
+
+plt.figure(figsize=(10, 6))
+sns.heatmap(numeric_df.corr(), annot=True, cmap='coolwarm', linewidths=0.5)
+plt.title('Sayısal Değişkenler Arası Korelasyon Matrisi')
+plt.show()
+
+
+
+
+
+# 9. Filtreleme Örneği
+print("\n--- 30+ Yaş, 1. Sınıf, Hayatta Kalmış Kadın Yolcular ---")
+filtered_passengers = titanic_df[
+    (titanic_df['age'] > 30) &
+    (titanic_df['pclass'] == 1) &
+    (titanic_df['survived'] == 1) &
+    (titanic_df['sex'] == 'female')
+]
+print(filtered_passengers[['age', 'pclass', 'sex', 'fare', 'embark_town']])
+
+
+
+
