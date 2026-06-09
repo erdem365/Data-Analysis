@@ -1,0 +1,73 @@
+# 1. Kütüphaneleri İçe Aktar
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Görsellerin notebook içinde gösterilmesi için
+%matplotlib inline
+
+# Grafik stillerini ayarlayalım
+sns.set_style('whitegrid')
+plt.rcParams['figure.figsize'] = (12, 8)
+
+# 2. Veri Setini Yükle
+# Seaborn kütüphanesi dahilinde hazır olarak bulunur.
+titanic_df = sns.load_dataset('titanic')
+
+# Alternatif: Eğer dosyayı bilgisayarınıza indirdiyseniz:
+# titanic_df = pd.read_csv('train.csv')
+
+# İlk 5 satırı inceleyelim
+print("--- İlk 5 Gözlem ---")
+print(titanic_df.head())
+
+# Genel veri seti bilgisi
+print("\n--- Veri Seti Bilgisi (info) ---")
+titanic_df.info()
+
+
+
+# 3. Eksik Veri Analizi
+print("\n--- Sütun Bazında Eksik Veri Sayıları ---")
+missing_values = titanic_df.isnull().sum()
+print(missing_values[missing_values > 0].sort_values(ascending=False))
+
+# Görselleştirme ile destekleyelim
+plt.figure(figsize=(10, 6))
+sns.heatmap(titanic_df.isnull(), yticklabels=False, cbar=True, cmap='viridis')
+plt.title('Eksik Veri Haritası (Açık: Eksik Veri Var)')
+plt.show()
+
+
+# 4. Eksik Verileri Doldurma ve Düzenleme
+
+# a) Yaş (Age) sütununu doldur
+titanic_df['age'].fillna(titanic_df['age'].median(), inplace=True)
+
+# b) Embarked ve embark_town sütunlarını doldur
+# En sık görülen limanı bulalım (mod)
+most_frequent_port = titanic_df['embarked'].mode()[0]
+titanic_df['embarked'].fillna(most_frequent_port, inplace=True)
+titanic_df['embark_town'].fillna(most_frequent_port, inplace=True) # Liman koduyla doldurduk, isterseniz 'Southampton' yazabilirsiniz.
+
+# c) Gereksiz sütunları silme
+cols_to_drop = ['deck', 'alive', 'who', 'adult_male']
+titanic_df.drop(columns=cols_to_drop, inplace=True)
+
+# d) Tekrar kontrol et
+print("\n--- Temizlik Sonrası Eksik Veri Sayıları ---")
+print(titanic_df.isnull().sum().sum()) # Toplam eksik veri sayısı 0 olmalı.
+
+
+
+
+# 5. Yinelenen Satır Kontrolü
+print(f"\nToplam Satır Sayısı: {len(titanic_df)}")
+duplicate_rows = titanic_df.duplicated().sum()
+print(f"Yinelenen Satır Sayısı: {duplicate_rows}")
+
+# Eğer varsa kaldırmak için:
+# titanic_df.drop_duplicates(inplace=True)
+
+
